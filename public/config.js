@@ -13,6 +13,10 @@ export const firebaseConfig = {
 // Gemini model used through Firebase AI Logic (Gemini Developer API, works on the free Spark plan).
 export const GEMINI_MODEL = "gemini-3.8-flash";
 
+// Firebase Console → App Check → Apps → web app → reCAPTCHA Enterprise → site key.
+// Required when App Check enforcement is on for Firebase AI Logic.
+export const RECAPTCHA_ENTERPRISE_SITE_KEY = "";
+
 // Speech recognition language for the microphone.
 export const SPEECH_LANG = "uk-UA";
 

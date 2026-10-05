@@ -38,7 +38,7 @@ npx firebase login
 npm run deploy       # https://<project-id>.web.app
 ```
 
-**Перед тим як ділитися посиланням,** увімкніть [App Check](https://firebase.google.com/docs/ai-logic/app-check) для AI Logic. Gemini викликається прямо з браузера, і без App Check вашу квоту зможе витрачати будь-хто.
+**App Check.** Gemini викликається прямо з браузера, тому [App Check](https://firebase.google.com/docs/ai-logic/app-check) захищає квоту від чужих запитів. У Firebase Console → App Check → Apps зареєструйте веб-застосунок із провайдером **reCAPTCHA Enterprise** і вставте site key у `RECAPTCHA_ENTERPRISE_SITE_KEY` у [`public/config.js`](public/config.js). Якщо для AI Logic увімкнено enforcement, без ключа Gemini відповідатиме помилкою «App Check token is invalid».
 
 ## Структура
 

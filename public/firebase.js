@@ -10,9 +10,20 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
-import { firebaseConfig, GEMINI_MODEL } from "./config.js";
+import {
+  initializeAppCheck,
+  ReCaptchaEnterpriseProvider,
+} from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app-check.js";
+import { firebaseConfig, GEMINI_MODEL, RECAPTCHA_ENTERPRISE_SITE_KEY } from "./config.js";
 
 const app = initializeApp(firebaseConfig);
+// App Check proves requests to Gemini come from this site, so nobody else can spend the quota.
+if (RECAPTCHA_ENTERPRISE_SITE_KEY) {
+  initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider(RECAPTCHA_ENTERPRISE_SITE_KEY),
+    isTokenAutoRefreshEnabled: true,
+  });
+}
 const auth = getAuth(app);
 const ai = getAI(app, { backend: new GoogleAIBackend() });
 
