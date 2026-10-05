@@ -1,12 +1,13 @@
 // Firebase web config: Firebase Console → Project settings → Your apps → Web app.
 // These values are not secrets; access is controlled by Firebase rules and App Check.
 export const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID",
+  apiKey: "AIzaSyDhMphfnPlstOGUA7XKcaXTSVPopUCQiHY",
+  authDomain: "day-planner-test.firebaseapp.com",
+  projectId: "day-planner-test",
+  storageBucket: "day-planner-test.firebasestorage.app",
+  messagingSenderId: "429873993823",
+  appId: "1:429873993823:web:24a1d9f1b0aa62cf5163ea",
+  measurementId: "G-HVH8G8DV5N",
 };
 
 // Gemini model used through Firebase AI Logic (Gemini Developer API, works on the free Spark plan).
