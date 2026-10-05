@@ -1,6 +1,6 @@
 import { isConfigured, SPEECH_LANG } from "./config.js";
-import { generatePlan, onUser, signOutUser } from "./firebase.js";
-import { addToGoogleCalendar, buildIcs } from "./calendar.js";
+import { onUser, requestPlanChanges, signOutUser } from "./firebase.js";
+import { buildIcs, syncToGoogleCalendar } from "./calendar.js";
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -19,6 +19,8 @@ const els = {
   banner: $("#setup-banner"),
   greeting: $("#greeting"),
   title: $("#composer-title"),
+  lead: $("#lead"),
+  history: $("#history"),
   field: $(".field"),
   dictation: $("#dictation"),
   live: $("#live"),
@@ -37,6 +39,7 @@ const els = {
   timeline: $("#timeline"),
   unscheduled: $("#unscheduled"),
   gcalBtn: $("#gcal-btn"),
+  clearBtn: $("#clear-btn"),
   icsBtn: $("#ics-btn"),
   toast: $("#toast"),
 };
@@ -115,6 +118,7 @@ function greeting() {
 }
 
 function composerTitle() {
+  if (day().plan?.blocks?.length) return "Що додати чи змінити?";
   const diff = dayDiff(state.date);
   if (diff === 0) return "Розкажіть, що на вас сьогодні чекає";
   if (diff === 1) return "Розкажіть, що на вас чекає завтра";
@@ -133,13 +137,15 @@ function earliestStart() {
 const currentKey = () => isoDate(state.date);
 
 function day(key = currentKey()) {
-  return (state.days[key] ||= { dictation: "", plan: null });
+  return (state.days[key] ||= { dictation: "", plan: null, history: [] });
 }
+
+const newId = () => `b${Math.random().toString(36).slice(2, 8)}`;
 
 function save() {
   try {
     const days = Object.fromEntries(
-      Object.entries(state.days).filter(([, d]) => d.plan || d.dictation?.trim()),
+      Object.entries(state.days).filter(([, d]) => d.plan || d.dictation?.trim() || d.history?.length),
     );
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ days }));
   } catch {}
@@ -150,11 +156,15 @@ function restore() {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
     if (saved?.days) {
       state.days = saved.days;
+      // Plans saved before editing existed have no block ids.
+      for (const d of Object.values(state.days)) d.plan?.blocks?.forEach((b) => (b.id ||= newId()));
       return;
     }
     const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || "null");
     if (legacy?.date) {
-      const plan = legacy.plan ? { ...legacy.plan, rationale: legacy.plan.summary } : null;
+      const plan = legacy.plan
+        ? { ...legacy.plan, rationale: legacy.plan.summary, blocks: legacy.plan.blocks.map((b) => ({ ...b, id: newId() })) }
+        : null;
       state.days[legacy.date] = { dictation: legacy.dictation || "", plan };
     }
   } catch {}
@@ -261,6 +271,14 @@ const CHIP_GROUPS = [
 function renderComposer() {
   els.greeting.textContent = greeting();
   els.title.textContent = composerTitle();
+  const editing = Boolean(day().plan?.blocks?.length);
+  els.lead.textContent = editing
+    ? "Скажіть, що змінилось, — решту плану я збережу."
+    : "Зустрічі, справи, бажання — у будь-якому порядку. Решту я впорядкую.";
+  els.dictation.placeholder = editing
+    ? "Наприклад: о 16:00 зустріч з Андрієм, а зал перенеси на ранок…"
+    : "Наприклад: о десятій дзвінок з командою, до обіду дописати презентацію, забрати посилку, ввечері в зал…";
+  renderHistory();
 
   const blocks = day().plan?.blocks || [];
   const chips = CHIP_GROUPS.map((g) => ({ ...g, n: blocks.filter((b) => g.types.includes(b.type)).length }))
@@ -278,6 +296,14 @@ function renderComposer() {
   syncPlanButton();
 }
 
+function renderHistory() {
+  const history = day().history || [];
+  els.history.hidden = history.length === 0;
+  if (!history.length) return;
+  els.history.querySelector("summary").textContent = `Що ви вже казали · ${history.length}`;
+  els.history.querySelector("ol").replaceChildren(...history.map((h) => el("li", null, h.text)));
+}
+
 function autoGrow() {
   els.dictation.style.height = "auto";
   els.dictation.style.height = `${els.dictation.scrollHeight}px`;
@@ -287,9 +313,12 @@ function syncPlanButton() {
   const loading = state.loadingKey === currentKey();
   els.planBtn.disabled = !isConfigured || Boolean(state.loadingKey) || !els.dictation.value.trim();
   els.planBtn.classList.toggle("loading", loading);
+  const editing = Boolean(day().plan?.blocks?.length);
   els.planBtn.querySelector(".label").textContent = loading
-    ? "Складаю план…"
-    : day().plan
+    ? editing
+      ? "Оновлюю план…"
+      : "Складаю план…"
+    : editing
       ? "Оновити план"
       : "Скласти план";
 }
@@ -326,16 +355,16 @@ function renderPlan() {
   list.replaceChildren(...(plan?.unscheduled || []).map((t) => el("li", null, t)));
   els.unscheduled.hidden = !plan?.unscheduled?.length;
 
-  const pending = blocks.filter((b) => b.included && !b.eventId);
-  const added = blocks.filter((b) => b.eventId).length;
-  els.gcalBtn.disabled = !isConfigured || pending.length === 0;
-  els.gcalBtn.querySelector(".label").textContent =
-    pending.length === 0 && added
-      ? "В календарі ✓"
-      : added
-        ? `Додати ще ${pending.length}`
-        : "Додати в Google Calendar";
+  const ops = plan ? calendarOps(plan) : [];
+  const synced = blocks.some((b) => b.eventId) || plan?.removedEventIds?.length;
+  els.gcalBtn.disabled = !isConfigured || ops.length === 0;
+  els.gcalBtn.querySelector(".label").textContent = !synced
+    ? "Додати в Google Calendar"
+    : ops.length
+      ? `Оновити календар · ${ops.length}`
+      : "В календарі ✓";
   els.icsBtn.disabled = !blocks.some((b) => b.included);
+  els.clearBtn.hidden = !plan;
 }
 
 function freeGaps(blocks) {
@@ -346,6 +375,29 @@ function freeGaps(blocks) {
     cursor = Math.max(cursor ?? 0, toMin(b.end));
   }
   return gaps;
+}
+
+// Overlapping blocks (rare, but possible after edits) sit side by side instead of on top of each other.
+function layoutColumns(blocks) {
+  let group = [];
+  let columns = [];
+  let groupEnd = -1;
+  const flush = () => group.forEach((b) => (b._cols = columns.length));
+  for (const b of blocks) {
+    const start = toMin(b.start);
+    if (start >= groupEnd) {
+      flush();
+      group = [];
+      columns = [];
+    }
+    let col = columns.findIndex((end) => end <= start);
+    if (col === -1) col = columns.push(0) - 1;
+    columns[col] = toMin(b.end);
+    b._col = col;
+    group.push(b);
+    groupEnd = Math.max(groupEnd, toMin(b.end));
+  }
+  flush();
 }
 
 function renderTimeline(blocks, loading) {
@@ -388,6 +440,7 @@ function renderTimeline(blocks, loading) {
       free.style.height = `${y(gap.to) - y(gap.from) - 6}px`;
       nodes.push(free);
     }
+    layoutColumns(blocks);
     blocks.forEach((block, i) => nodes.push(eventEl(block, i, y)));
   }
 
@@ -402,6 +455,8 @@ function renderTimeline(blocks, loading) {
   tl.style.height = `${(endH - startH) * HOUR_PX + 12}px`;
   tl.replaceChildren(...nodes);
 }
+
+const renderedIds = new Set();
 
 function eventEl(block, index, y) {
   const start = toMin(block.start);
@@ -418,13 +473,20 @@ function eventEl(block, index, y) {
   if (!block.included) btn.classList.add("off");
   btn.style.top = `${y(start) + 1}px`;
   btn.style.height = `${height}px`;
-  btn.style.animationDelay = `${index * 25}ms`;
+  btn.style.setProperty("--col", block._col ?? 0);
+  btn.style.setProperty("--cols", block._cols ?? 1);
+  // Only blocks that weren't on screen before fade in, so edits don't replay the whole plan.
+  if (!renderedIds.has(block.id)) {
+    btn.classList.add("appear");
+    btn.style.animationDelay = `${index * 25}ms`;
+    renderedIds.add(block.id);
+  }
   btn.setAttribute("aria-pressed", String(block.included));
-  btn.title = block.eventId
-    ? "Вже в Google Calendar"
-    : block.included
-      ? "Натисніть, щоб не додавати в календар"
-      : "Натисніть, щоб додати в календар";
+  btn.title = block.included
+    ? block.eventId
+      ? "Натисніть, щоб прибрати з Google Calendar"
+      : "Натисніть, щоб не додавати в календар"
+    : "Натисніть, щоб додати в календар";
 
   const main = el("div", "event-main");
   main.append(el("div", "event-title", block.title));
@@ -432,10 +494,11 @@ function eventEl(block, index, y) {
   main.append(el("div", "event-sub", compact || !block.notes ? time : `${time} · ${block.notes}`));
   btn.append(main);
 
-  if (block.eventId) {
-    const badge = el("span", "event-badge added");
+  if (block.eventId && block.included) {
+    const badge = el("span", `event-badge ${block.dirty ? "changed" : "added"}`);
     badge.innerHTML = CHECK_SVG;
-    badge.append(el("span", "badge-text", "В календарі"));
+    badge.append(el("span", "badge-text", block.dirty ? "Змінено" : "В календарі"));
+    if (block.dirty) badge.title = "Змінено після додавання — натисніть «Оновити календар»";
     btn.append(badge);
   } else if (block.fixed) {
     const badge = el("span", "event-badge");
@@ -446,7 +509,6 @@ function eventEl(block, index, y) {
   }
 
   btn.addEventListener("click", () => {
-    if (block.eventId) return toast("Ця подія вже в Google Calendar");
     block.included = !block.included;
     save();
     renderPlan();
@@ -632,38 +694,87 @@ function stopRecording() {
 
 // ---------- Actions ----------
 
-function normalizePlan(raw) {
-  const blocks = (raw.blocks || [])
-    .filter((b) => b && b.title && TIME_RE.test(b.start) && TIME_RE.test(b.end) && b.end > b.start)
-    .sort((a, b) => a.start.localeCompare(b.start))
-    .map((b) => ({ ...b, included: true, eventId: null }));
-  return { rationale: raw.rationale || "", blocks, unscheduled: raw.unscheduled || [] };
+const EDITABLE = ["start", "end", "title", "type", "fixed", "notes"];
+const validTimes = (b) => TIME_RE.test(b.start) && TIME_RE.test(b.end) && b.end > b.start;
+
+/** Applies Gemini's add/update/remove to the plan; everything it didn't mention stays untouched. */
+function applyChanges(plan, changes) {
+  const blocks = plan.blocks.map((b) => ({ ...b }));
+  const byId = new Map(blocks.map((b) => [b.id, b]));
+  const removedEventIds = [...(plan.removedEventIds || [])];
+
+  for (const update of changes.update || []) {
+    const block = byId.get(update.id);
+    if (!block) continue;
+    const next = { ...block };
+    for (const key of EDITABLE) if (update[key] !== undefined && update[key] !== "") next[key] = update[key];
+    if (!validTimes(next) || !next.title) continue;
+    const changed = EDITABLE.some((key) => (next[key] ?? "") !== (block[key] ?? ""));
+    Object.assign(block, next, { dirty: Boolean(block.dirty || (changed && block.eventId)) });
+  }
+
+  const removeIds = new Set(changes.remove || []);
+  const kept = blocks.filter((b) => {
+    if (!removeIds.has(b.id)) return true;
+    if (b.eventId) removedEventIds.push(b.eventId);
+    return false;
+  });
+
+  const added = (changes.add || [])
+    .filter((b) => b && b.title && validTimes(b))
+    .map((b) => ({
+      id: newId(),
+      start: b.start,
+      end: b.end,
+      title: b.title,
+      type: b.type,
+      fixed: Boolean(b.fixed),
+      notes: b.notes || "",
+      included: true,
+      eventId: null,
+      dirty: false,
+    }));
+
+  return {
+    rationale: changes.rationale || plan.rationale || "",
+    blocks: [...kept, ...added].sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end)),
+    unscheduled: Array.isArray(changes.unscheduled) ? changes.unscheduled : plan.unscheduled || [],
+    removedEventIds,
+  };
 }
 
 async function makePlan() {
   if (recording) stopRecording();
-  const dictation = els.dictation.value.trim();
-  if (!dictation || state.loadingKey) return;
+  const request = els.dictation.value.trim();
+  if (!request || state.loadingKey) return;
 
   const date = new Date(state.date);
   const key = isoDate(date);
   const entry = day(key);
-  const hadEvents = entry.plan?.blocks?.some((b) => b.eventId);
+  const plan = entry.plan || { rationale: "", blocks: [], unscheduled: [], removedEventIds: [] };
   entry.dictation = els.dictation.value;
   state.loadingKey = key;
   render();
 
   try {
-    const raw = await generatePlan(dictation, {
+    const changes = await requestPlanChanges(request, plan, {
       dateLabel: date.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }),
       isoDate: key,
       nowTime: hhmm(new Date()),
       earliestStart: earliestStart(),
       timeZone: TIME_ZONE,
     });
-    entry.plan = normalizePlan(raw);
-    if (!entry.plan.blocks.length) toast("Не вдалося нічого розкласти — спробуйте розповісти детальніше");
-    else if (hadEvents) toast("Події з попереднього плану лишились у календарі — нові додадуться окремо", 5000);
+    const next = applyChanges(plan, changes);
+    const touched = (changes.add?.length || 0) + (changes.update?.length || 0) + (changes.remove?.length || 0);
+    if (!touched && !next.blocks.length) {
+      toast("Не вдалося нічого розкласти — спробуйте розповісти детальніше");
+    } else {
+      entry.plan = next;
+      (entry.history ||= []).push({ text: request, at: Date.now() });
+      entry.dictation = "";
+      if (key === currentKey()) els.dictation.value = "";
+      if (!touched) toast("План не змінився — спробуйте сказати інакше");
+    }
     save();
   } catch (err) {
     console.error(err);
@@ -682,20 +793,46 @@ async function makePlan() {
   }
 }
 
+/** What has to happen in Google Calendar for it to match the plan. */
+function calendarOps(plan) {
+  const ops = [];
+  for (const block of plan.blocks) {
+    if (block.included && !block.eventId) ops.push({ kind: "create", block });
+    else if (block.included && block.dirty) ops.push({ kind: "update", block });
+    else if (!block.included && block.eventId) ops.push({ kind: "delete", eventId: block.eventId, block });
+  }
+  for (const eventId of plan.removedEventIds || []) ops.push({ kind: "delete", eventId });
+  return ops;
+}
+
 async function exportToGoogle() {
   const key = currentKey();
-  const pending = day(key).plan.blocks.filter((b) => b.included && !b.eventId);
-  if (!pending.length) return;
+  const plan = day(key).plan;
+  const ops = calendarOps(plan);
+  if (!ops.length) return;
   els.gcalBtn.disabled = true;
   els.gcalBtn.classList.add("loading");
-  els.gcalBtn.querySelector(".label").textContent = "Додаю";
-  let ids = [];
+  els.gcalBtn.querySelector(".label").textContent = "Синхронізую";
+  const done = { create: 0, update: 0, delete: 0 };
   try {
-    ids = await addToGoogleCalendar(pending, key, TIME_ZONE);
-    toast(`Готово: ${ids.length} ${plural(ids.length, "подія", "події", "подій")} у Google Calendar`);
+    await syncToGoogleCalendar(ops, key, TIME_ZONE, (op, eventId) => {
+      done[op.kind]++;
+      if (op.kind === "delete") {
+        if (op.block) op.block.eventId = null;
+        else plan.removedEventIds = plan.removedEventIds.filter((id) => id !== op.eventId);
+      } else {
+        op.block.eventId = eventId;
+        op.block.dirty = false;
+      }
+      save();
+    });
+    const parts = [];
+    if (done.create) parts.push(`додано ${done.create}`);
+    if (done.update) parts.push(`оновлено ${done.update}`);
+    if (done.delete) parts.push(`видалено ${done.delete}`);
+    toast(`Google Calendar: ${parts.join(", ")}`);
   } catch (err) {
     console.error(err);
-    ids = err.createdIds || [];
     const msg =
       err.code === "auth/popup-closed-by-user" || err.code === "auth/cancelled-popup-request"
         ? "Вхід у Google скасовано"
@@ -704,11 +841,23 @@ async function exportToGoogle() {
           : err.message;
     toast(msg, 6000);
   } finally {
-    ids.forEach((id, i) => (pending[i].eventId = id));
     els.gcalBtn.classList.remove("loading");
     save();
     renderPlan();
   }
+}
+
+function clearDay() {
+  const entry = day();
+  const synced = entry.plan?.blocks?.some((b) => b.eventId);
+  const question = synced
+    ? "Очистити план на цей день? Події, які вже в Google Calendar, залишаться там."
+    : "Очистити план на цей день?";
+  if (!confirm(question)) return;
+  entry.plan = null;
+  entry.history = [];
+  save();
+  render();
 }
 
 function downloadIcs() {
@@ -763,6 +912,7 @@ els.dictation.addEventListener("input", () => {
 els.planBtn.addEventListener("click", makePlan);
 els.gcalBtn.addEventListener("click", exportToGoogle);
 els.icsBtn.addEventListener("click", downloadIcs);
+els.clearBtn.addEventListener("click", clearDay);
 
 els.datePill.addEventListener("click", (e) => {
   e.stopPropagation();

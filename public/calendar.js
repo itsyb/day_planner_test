@@ -24,39 +24,52 @@ function toEvent(block, isoDate, timeZone) {
   };
 }
 
-async function insertEvent(token, event) {
-  return fetch("https://www.googleapis.com/calendar/v3/calendars/primary/events", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(event),
-  });
+const EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+
+function request(token, op, isoDate, timeZone) {
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  if (op.kind === "create") {
+    return fetch(EVENTS_URL, { method: "POST", headers, body: JSON.stringify(toEvent(op.block, isoDate, timeZone)) });
+  }
+  if (op.kind === "update") {
+    return fetch(`${EVENTS_URL}/${encodeURIComponent(op.block.eventId)}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(toEvent(op.block, isoDate, timeZone)),
+    });
+  }
+  return fetch(`${EVENTS_URL}/${encodeURIComponent(op.eventId)}`, { method: "DELETE", headers });
 }
 
 /**
- * Adds blocks to the user's primary Google Calendar.
+ * Brings the user's primary Google Calendar in line with the plan.
  * Must be called from a click handler (opens a Google sign-in popup on first use).
- * @returns {Promise<string[]>} created event ids, in the same order as blocks
+ * @param {Array<{kind: "create"|"update", block: object} | {kind: "delete", eventId: string}>} ops
+ * @param {(op: object, eventId: string|null) => void} onDone  called after each applied op,
+ *   so progress is kept even if a later op fails; eventId is null when the event no longer exists
  */
-export async function addToGoogleCalendar(blocks, isoDate, timeZone) {
+export async function syncToGoogleCalendar(ops, isoDate, timeZone, onDone) {
   let token = await accessToken();
-  const ids = [];
-  for (const block of blocks) {
-    const event = toEvent(block, isoDate, timeZone);
-    let res = await insertEvent(token, event);
+  for (const op of ops) {
+    let res = await request(token, op, isoDate, timeZone);
     if (res.status === 401) {
       token = await accessToken({ forceNew: true });
-      res = await insertEvent(token, event);
+      res = await request(token, op, isoDate, timeZone);
+    }
+    // Event deleted in Google Calendar meanwhile: a delete is done, an update becomes a create.
+    if ((res.status === 404 || res.status === 410) && op.kind !== "create") {
+      if (op.kind === "delete") {
+        onDone(op, null);
+        continue;
+      }
+      res = await request(token, { kind: "create", block: op.block }, isoDate, timeZone);
     }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      const reason = body?.error?.message || res.statusText;
-      const err = new Error(`Google Calendar: ${reason}`);
-      err.createdIds = ids;
-      throw err;
+      throw new Error(`Google Calendar: ${body?.error?.message || res.statusText}`);
     }
-    ids.push((await res.json()).id);
+    onDone(op, op.kind === "delete" ? null : (await res.json()).id);
   }
-  return ids;
 }
 
 function icsDate(isoDate, time) {

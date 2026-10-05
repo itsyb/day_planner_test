@@ -30,17 +30,24 @@ const auth = getAuth(app);
 const ai = getAI(app, { backend: new GoogleAIBackend() });
 
 const SYSTEM_PROMPT = `You are a calm, practical personal day planner.
-The user dictates (via messy speech-to-text) everything they have for the day: meetings with fixed times, tasks, errands and things they would like to fit in.
-Turn it into a realistic hour-by-hour schedule.
+You maintain the user's plan for one day. You receive the current plan (possibly empty) and what the user just said (messy speech-to-text): new meetings, tasks, wishes, or changes to existing items.
+Reply with the CHANGES to apply to the plan, not the whole plan.
 
-Rules:
+Editing rules:
+- Every existing block stays exactly as it is unless the user asks to change it, or it must move to make room for a new fixed-time item.
+- New items go to "add". Changes to existing blocks go to "update" (id plus only the fields that change). Blocks the user cancels or wants removed go to "remove" (ids).
+- Never remove or rewrite blocks the user did not mention. If the user only adds something, "update" and "remove" are usually empty.
+- Never move blocks that already ended (end before the current time) and never move fixed blocks unless asked.
+- "unscheduled" is the full new list of things that do not fit (keep earlier items unless they are now scheduled or dropped).
+
+Planning rules:
 - Items with a stated time (meetings, calls, appointments) keep exactly that time and get fixed=true.
 - If a duration is not stated, estimate a realistic one: small to-dos (reply, pay, call back) take 15–30 minutes, errands 30–45 minutes plus travel. Split big creative work into a draft and a final block when it helps.
 - Put demanding focus work earlier in the day when possible.
-- Add lunch if the day spans midday and short breaks between long blocks. Combine errands with trips when it is natural (e.g. pick up a parcel on the way from lunch).
-- Never schedule anything before the earliest start time given in the context.
+- Add lunch if the day spans midday and there is none yet, and short breaks between long blocks. Combine errands with trips when it is natural (e.g. pick up a parcel on the way from lunch).
+- Never schedule new items before the earliest start time given in the context.
 - Default working window is 08:00–22:00 unless the user says otherwise.
-- No overlaps. Use 24h "HH:MM". Sort blocks by start time. A block must end after it starts and no later than 23:59.
+- After applying your changes there must be no overlaps. Use 24h "HH:MM". A block must end after it starts and no later than 23:59.
 - Leave free time free; do not pad the day with invented activities.
 - If something does not fit, list it in "unscheduled" instead of squeezing it in.
 - Do not invent tasks the user did not mention (lunch, breaks and travel are the only exception).
@@ -58,26 +65,41 @@ Language:
 - Write titles, notes and rationale in the same language the user spoke.
 - Titles are short calendar-style names (up to ~5 words).
 - Notes are optional, 2–4 useful words, e.g. "Глибока робота · без сповіщень". Omit generic notes like "Важливо" or "Перерва".
-- "rationale" is one short sentence (max ~15 words) explaining the key placement decisions, e.g. "презентація — на ранок, поки є фокус. Посилка — по дорозі з обіду."`;
+- "rationale" is one short sentence (max ~15 words) about the key decisions of THIS change, e.g. "презентація — на ранок, поки є фокус. Посилка — по дорозі з обіду."`;
 
-const planSchema = Schema.object({
+const TYPES = ["focus", "meeting", "task", "errand", "break", "sport", "personal"];
+
+const newBlockSchema = Schema.object({
+  properties: {
+    start: Schema.string({ description: "Start time, HH:MM 24h" }),
+    end: Schema.string({ description: "End time, HH:MM 24h" }),
+    title: Schema.string(),
+    type: Schema.enumString({ enum: TYPES }),
+    fixed: Schema.boolean({ description: "True if the user stated this exact time" }),
+    notes: Schema.string(),
+  },
+  optionalProperties: ["notes"],
+});
+
+const blockUpdateSchema = Schema.object({
+  properties: {
+    id: Schema.string({ description: "id of an existing block" }),
+    start: Schema.string(),
+    end: Schema.string(),
+    title: Schema.string(),
+    type: Schema.enumString({ enum: TYPES }),
+    fixed: Schema.boolean(),
+    notes: Schema.string(),
+  },
+  optionalProperties: ["start", "end", "title", "type", "fixed", "notes"],
+});
+
+const changesSchema = Schema.object({
   properties: {
     rationale: Schema.string(),
-    blocks: Schema.array({
-      items: Schema.object({
-        properties: {
-          start: Schema.string({ description: "Start time, HH:MM 24h" }),
-          end: Schema.string({ description: "End time, HH:MM 24h" }),
-          title: Schema.string(),
-          type: Schema.enumString({
-            enum: ["focus", "meeting", "task", "errand", "break", "sport", "personal"],
-          }),
-          fixed: Schema.boolean({ description: "True if the user stated this exact time" }),
-          notes: Schema.string(),
-        },
-        optionalProperties: ["notes"],
-      }),
-    }),
+    add: Schema.array({ items: newBlockSchema }),
+    update: Schema.array({ items: blockUpdateSchema }),
+    remove: Schema.array({ items: Schema.string({ description: "id of a block to remove" }) }),
     unscheduled: Schema.array({ items: Schema.string() }),
   },
 });
@@ -88,7 +110,7 @@ const models = GEMINI_MODELS.map((name) =>
     systemInstruction: SYSTEM_PROMPT,
     generationConfig: {
       responseMimeType: "application/json",
-      responseSchema: planSchema,
+      responseSchema: changesSchema,
       temperature: 0.4,
       // Planning a day doesn't need long deliberation; low thinking keeps responses fast.
       thinkingConfig: { thinkingLevel: "LOW" },
@@ -104,19 +126,32 @@ const isUnavailable = (err) => [429, 500, 503].includes(errorStatus(err));
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * @param {string} dictation  what the user said
+ * Asks Gemini how to change the day's plan.
+ * @param {string} request  what the user just said
+ * @param {{blocks: object[], unscheduled: string[]}} plan  current plan (blocks carry ids)
  * @param {{dateLabel: string, isoDate: string, nowTime: string, earliestStart: string, timeZone: string}} ctx
+ * @returns {Promise<{rationale: string, add: object[], update: object[], remove: string[], unscheduled: string[]}>}
  */
-export async function generatePlan(dictation, ctx) {
+export async function requestPlanChanges(request, plan, ctx) {
+  const current = plan.blocks.length
+    ? plan.blocks
+        .map(({ id, start, end, title, type, fixed, notes }) => JSON.stringify({ id, start, end, title, type, fixed, notes }))
+        .join("\n")
+    : "(empty — this is the first request for the day)";
   const prompt = `Context:
 - Plan date: ${ctx.dateLabel} (${ctx.isoDate})
 - Current local time: ${ctx.nowTime}
 - Time zone: ${ctx.timeZone}
-- Earliest start time: ${ctx.earliestStart}
+- Earliest start time for new items: ${ctx.earliestStart}
 
-What the user said:
+Current plan:
+${current}
+
+Currently unscheduled: ${plan.unscheduled.length ? plan.unscheduled.join("; ") : "(nothing)"}
+
+What the user just said:
 """
-${dictation}
+${request}
 """`;
 
   let lastError;

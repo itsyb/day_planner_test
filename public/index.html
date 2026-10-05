@@ -65,13 +65,18 @@
     <section class="card composer" aria-labelledby="composer-title">
       <p id="greeting" class="eyebrow"></p>
       <h1 id="composer-title"></h1>
-      <p class="lead">Зустрічі, справи, бажання — у будь-якому порядку. Решту я впорядкую.</p>
+      <p id="lead" class="lead"></p>
 
       <div class="field">
-        <textarea id="dictation" aria-label="Що у вас заплановано" placeholder="Наприклад: о десятій дзвінок з командою, до обіду дописати презентацію, забрати посилку, ввечері в зал…"></textarea>
+        <textarea id="dictation" aria-label="Що у вас заплановано" ></textarea>
         <div id="live" class="live" aria-hidden="true" hidden><span class="final"></span> <span class="interim"></span><span class="caret"></span></div>
         <div id="chips" class="chips" hidden></div>
       </div>
+
+      <details id="history" class="history" hidden>
+        <summary></summary>
+        <ol></ol>
+      </details>
 
       <div class="recorder">
         <button id="mic" type="button" class="mic" aria-label="Почати запис" aria-pressed="false">
@@ -98,6 +103,9 @@
           <p id="plan-meta" class="plan-meta"></p>
         </div>
         <div class="plan-actions">
+          <button id="clear-btn" type="button" class="btn-soft icon-only" aria-label="Очистити план" title="Очистити план" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 4h4M7 7l.8 11.2A2 2 0 0 0 9.8 20h4.4a2 2 0 0 0 2-1.8L17 7M10.5 11v5M13.5 11v5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
           <button id="ics-btn" type="button" class="btn-soft" disabled>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             .ics
