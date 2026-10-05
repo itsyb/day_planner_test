@@ -1,0 +1,13 @@
+{
+  "name": "day-planner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Voice day planner: dictate your day, Gemini builds an hourly plan, export to Google Calendar.",
+  "scripts": {
+    "dev": "firebase emulators:start --only hosting",
+    "deploy": "firebase deploy --only hosting"
+  },
+  "devDependencies": {
+    "firebase-tools": "^15.0.0"
+  }
+}
