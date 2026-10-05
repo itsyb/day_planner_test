@@ -1,6 +1,7 @@
 import { getCalendarAccessToken } from "./firebase.js";
 
-const COLOR_BY_TYPE = { meeting: "9", task: "7", personal: "2", break: "8" };
+// Google Calendar event colors: https://developers.google.com/calendar/api/v3/reference/colors
+const COLOR_BY_TYPE = { focus: "3", meeting: "9", task: "5", errand: "7", break: "2", sport: "11", personal: "10" };
 
 let cachedToken = null;
 let cachedTokenExpiry = 0;

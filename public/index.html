@@ -3,61 +3,122 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#f3f4f8" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
-  <title>Мій день</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%230071e3'/><circle cx='50' cy='50' r='26' fill='none' stroke='white' stroke-width='8'/><path d='M50 36v15l10 7' stroke='white' stroke-width='8' fill='none' stroke-linecap='round'/></svg>">
+  <title>День</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%234f8dff'/><stop offset='1' stop-color='%235b5bd6'/></linearGradient></defs><rect width='32' height='32' rx='9' fill='url(%23g)'/><path d='M9 11h14M9 16h10M9 21h6' stroke='white' stroke-width='2.4' stroke-linecap='round'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="styles.css">
   <script type="module" src="app.js"></script>
 </head>
 <body>
-  <main class="app">
-    <header class="hero">
-      <p class="eyebrow" id="date-label"></p>
-      <h1>Мій день</h1>
-      <div class="segmented" role="radiogroup" aria-label="День">
-        <button type="button" role="radio" data-offset="0" aria-checked="true">Сьогодні</button>
-        <button type="button" role="radio" data-offset="1" aria-checked="false">Завтра</button>
-      </div>
-    </header>
-
-    <div id="setup-banner" class="banner" hidden>
-      Підключіть Firebase: заповніть <code>public/config.js</code> — інструкція в README.
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M6 8h12M6 12h8M6 16h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+      </span>
+      <span class="brand-name">День</span>
     </div>
 
-    <section class="composer">
-      <button id="mic" type="button" class="mic" aria-label="Почати запис" aria-pressed="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 1 0-7 0v6A3.5 3.5 0 0 0 12 15Z"/><path d="M18.5 11.5a6.5 6.5 0 0 1-13 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-      </button>
-      <p id="mic-hint" class="hint">Натисніть і розкажіть, що у вас сьогодні</p>
+    <div class="topbar-right">
+      <div class="date-nav">
+        <button id="prev-day" type="button" class="icon-btn" aria-label="Попередній день">
+          <svg viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button id="date-pill" type="button" class="pill" aria-haspopup="dialog" aria-expanded="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <span id="date-label"></span>
+        </button>
+        <button id="next-day" type="button" class="icon-btn" aria-label="Наступний день">
+          <svg viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
 
-      <div class="card field">
-        <textarea id="dictation" rows="4" placeholder="Наприклад: о десятій стендап на пів години, о третій дзвінок з клієнтом, треба дописати звіт, сходити в спортзал і купити продукти…"></textarea>
+        <div id="calendar" class="calendar" role="dialog" aria-label="Оберіть день" hidden>
+          <div class="cal-head">
+            <span id="cal-month" class="cal-month"></span>
+            <div class="cal-arrows">
+              <button id="cal-prev" type="button" class="icon-btn" aria-label="Попередній місяць">
+                <svg viewBox="0 0 24 24"><path d="M14.5 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <button id="cal-next" type="button" class="icon-btn" aria-label="Наступний місяць">
+                <svg viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="cal-weekdays" aria-hidden="true"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Нд</span></div>
+          <div id="cal-grid" class="cal-grid"></div>
+          <button id="cal-today" type="button" class="cal-today">Сьогодні</button>
+        </div>
       </div>
 
-      <button id="plan-btn" type="button" class="btn primary wide" disabled>
+      <button id="avatar" type="button" class="avatar" hidden></button>
+    </div>
+  </header>
+
+  <div id="setup-banner" class="banner" hidden>
+    Підключіть Firebase: заповніть <code>public/config.js</code> — інструкція в README.
+  </div>
+
+  <main class="layout">
+    <section class="card composer" aria-labelledby="composer-title">
+      <p id="greeting" class="eyebrow"></p>
+      <h1 id="composer-title"></h1>
+      <p class="lead">Зустрічі, справи, бажання — у будь-якому порядку. Решту я впорядкую.</p>
+
+      <div class="field">
+        <textarea id="dictation" aria-label="Що у вас заплановано" placeholder="Наприклад: о десятій дзвінок з командою, до обіду дописати презентацію, забрати посилку, ввечері в зал…"></textarea>
+        <div id="live" class="live" aria-hidden="true" hidden><span class="final"></span> <span class="interim"></span><span class="caret"></span></div>
+        <div id="chips" class="chips" hidden></div>
+      </div>
+
+      <div class="recorder">
+        <button id="mic" type="button" class="mic" aria-label="Почати запис" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14.5a3 3 0 0 0 3-3v-5a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z" fill="currentColor"/><path d="M17.5 11.5a5.5 5.5 0 0 1-11 0M12 17v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <div id="wave" class="wave" aria-hidden="true"></div>
+        <div class="rec-meta">
+          <span id="rec-time" class="rec-time"></span>
+          <span id="rec-hint" class="rec-hint"></span>
+        </div>
+      </div>
+
+      <button id="plan-btn" type="button" class="btn-dark" disabled>
+        <svg class="sparkle" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l1.7 4.6 4.8 1.7-4.8 1.7L12 16.1l-1.7-4.6-4.8-1.7 4.8-1.7L12 3.5ZM18.5 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z" fill="currentColor"/></svg>
         <span class="label">Скласти план</span>
+        <kbd id="kbd"></kbd>
       </button>
     </section>
 
-    <section id="plan" class="plan" hidden aria-live="polite">
+    <section class="card plan" aria-labelledby="plan-title" aria-live="polite">
       <div class="plan-head">
-        <h2>План</h2>
-        <button id="reset-btn" type="button" class="link">Почати заново</button>
+        <div>
+          <h2 id="plan-title">Ваш план</h2>
+          <p id="plan-meta" class="plan-meta"></p>
+        </div>
+        <div class="plan-actions">
+          <button id="ics-btn" type="button" class="btn-soft" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            .ics
+          </button>
+          <button id="gcal-btn" type="button" class="btn-blue" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 10h16M9 14h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span class="label">Додати в Google Calendar</span>
+          </button>
+        </div>
       </div>
-      <p id="summary" class="summary"></p>
-      <ol id="timeline" class="card timeline"></ol>
 
-      <div id="unscheduled" class="card unscheduled" hidden>
+      <div id="why" class="why" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l1.7 4.6 4.8 1.7-4.8 1.7L12 16.1l-1.7-4.6-4.8-1.7 4.8-1.7L12 3.5Z" fill="currentColor"/></svg>
+        <p><b>Чому так:</b> <span id="why-text"></span></p>
+      </div>
+
+      <div id="timeline" class="timeline"></div>
+
+      <div id="unscheduled" class="unscheduled" hidden>
         <h3>Не вмістилось</h3>
         <ul></ul>
-      </div>
-
-      <div class="actions">
-        <button id="gcal-btn" type="button" class="btn primary wide">
-          <span class="label">Додати в Google Calendar</span>
-        </button>
-        <button id="ics-btn" type="button" class="btn secondary wide">Завантажити .ics</button>
       </div>
     </section>
   </main>

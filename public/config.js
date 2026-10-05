@@ -10,8 +10,10 @@ export const firebaseConfig = {
   measurementId: "G-HVH8G8DV5N",
 };
 
-// Gemini model used through Firebase AI Logic (Gemini Developer API, works on the free Spark plan).
-export const GEMINI_MODEL = "gemini-3.8-flash";
+// Gemini models used through Firebase AI Logic (Gemini Developer API, works on the free Spark plan).
+// Tried in order: when one is overloaded or out of quota, the next one takes over.
+// On the free tier each model has its own small daily request limit, so a chain multiplies it.
+export const GEMINI_MODELS = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.7-flash", "gemini-3.5-flash"];
 
 // Firebase Console → App Check → Apps → web app → reCAPTCHA Enterprise → site key.
 // Required when App Check enforcement is on for Firebase AI Logic.
