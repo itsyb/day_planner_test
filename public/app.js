@@ -5,42 +5,43 @@ import { buildIcs, syncToGoogleCalendar } from "./calendar.js";
 const $ = (sel) => document.querySelector(sel);
 
 const els = {
-  datePill: $("#date-pill"),
-  dateLabel: $("#date-label"),
+  dateBtn: $("#date-btn"),
+  dateNum: $("#date-num"),
+  dateWeekday: $("#date-weekday"),
+  dateMonth: $("#date-month"),
   prevDay: $("#prev-day"),
   nextDay: $("#next-day"),
+  todayBtn: $("#today-btn"),
   calendar: $("#calendar"),
   calMonth: $("#cal-month"),
   calGrid: $("#cal-grid"),
   calPrev: $("#cal-prev"),
   calNext: $("#cal-next"),
-  calToday: $("#cal-today"),
   avatar: $("#avatar"),
   banner: $("#setup-banner"),
-  greeting: $("#greeting"),
-  title: $("#composer-title"),
-  lead: $("#lead"),
+  dayStatus: $("#day-status"),
+  composition: $("#composition"),
+  compBar: $("#comp-bar"),
+  compLegend: $("#comp-legend"),
+  why: $("#why"),
   history: $("#history"),
-  field: $(".field"),
+  unscheduled: $("#unscheduled"),
+  planActions: $("#plan-actions"),
+  gcalBtn: $("#gcal-btn"),
+  icsBtn: $("#ics-btn"),
+  clearBtn: $("#clear-btn"),
+  timeline: $("#timeline"),
+  dock: $("#dock"),
   dictation: $("#dictation"),
   live: $("#live"),
   liveFinal: $("#live .final"),
   liveInterim: $("#live .interim"),
-  chips: $("#chips"),
   mic: $("#mic"),
-  wave: $("#wave"),
+  recRow: $("#rec-row"),
   recTime: $("#rec-time"),
-  recHint: $("#rec-hint"),
+  wave: $("#wave"),
   planBtn: $("#plan-btn"),
-  kbd: $("#kbd"),
-  planMeta: $("#plan-meta"),
-  why: $("#why"),
-  whyText: $("#why-text"),
-  timeline: $("#timeline"),
-  unscheduled: $("#unscheduled"),
-  gcalBtn: $("#gcal-btn"),
-  clearBtn: $("#clear-btn"),
-  icsBtn: $("#ics-btn"),
+  dockHint: $("#dock-hint"),
   toast: $("#toast"),
 };
 
@@ -48,8 +49,6 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const STORAGE_KEY = "day-planner:v2";
 const LEGACY_STORAGE_KEY = "day-planner:v1";
-const HOUR_PX = 48;
-const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const IS_MOBILE = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
 
 const state = {
@@ -109,21 +108,16 @@ function dateLabel(d) {
   return `${capitalize(weekday)}, ${d.toLocaleDateString("uk-UA", opts)}`;
 }
 
-function greeting() {
-  const h = new Date().getHours();
-  if (h >= 5 && h < 12) return "Доброго ранку";
-  if (h >= 12 && h < 18) return "Добрий день";
-  if (h >= 18 && h < 23) return "Добрий вечір";
-  return "Доброї ночі";
+function dayWord() {
+  const diff = dayDiff(state.date);
+  if (diff === 0) return "сьогодні";
+  if (diff === 1) return "завтра";
+  if (diff === -1) return "вчора";
+  return state.date.toLocaleDateString("uk-UA", { day: "numeric", month: "long" });
 }
 
-function composerTitle() {
-  if (day().plan?.blocks?.length) return "Що додати чи змінити?";
-  const diff = dayDiff(state.date);
-  if (diff === 0) return "Розкажіть, що на вас сьогодні чекає";
-  if (diff === 1) return "Розкажіть, що на вас чекає завтра";
-  return `Розкажіть, що на вас чекає ${state.date.toLocaleDateString("uk-UA", { day: "numeric", month: "long" })}`;
-}
+const hourPx = () =>
+  parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--hour")) || 52;
 
 function earliestStart() {
   if (dayDiff(state.date) !== 0) return "00:00";
@@ -195,19 +189,27 @@ const CHECK_SVG =
 // ---------- Header & calendar ----------
 
 function renderHeader() {
-  els.dateLabel.textContent = dateLabel(state.date);
+  const d = state.date;
+  els.dateNum.textContent = d.getDate();
+  els.dateWeekday.textContent = d.toLocaleDateString("uk-UA", { weekday: "long" });
+  // "5 жовтня" → "жовтня", keeping the genitive form.
+  const month = d.toLocaleDateString("uk-UA", { day: "numeric", month: "long" }).replace(/^\d+\s*/, "");
+  els.dateMonth.textContent = `${month} ${d.getFullYear()}`;
+  els.dateBtn.setAttribute("aria-label", `${dateLabel(d)}. Обрати інший день`);
+  els.todayBtn.disabled = dayDiff(d) === 0;
+  document.title = `${dateLabel(d)} — день.`;
 }
 
 function openCalendar() {
   state.calMonth = new Date(state.date.getFullYear(), state.date.getMonth(), 1);
   renderCalendar();
   els.calendar.hidden = false;
-  els.datePill.setAttribute("aria-expanded", "true");
+  els.dateBtn.setAttribute("aria-expanded", "true");
 }
 
 function closeCalendar() {
   els.calendar.hidden = true;
-  els.datePill.setAttribute("aria-expanded", "false");
+  els.dateBtn.setAttribute("aria-expanded", "false");
 }
 
 function renderCalendar() {
@@ -262,36 +264,15 @@ function selectDate(d) {
 
 // ---------- Composer ----------
 
-const CHIP_GROUPS = [
-  { types: ["meeting"], color: "var(--c-meeting)", label: (n) => `${n} ${plural(n, "зустріч", "зустрічі", "зустрічей")}` },
-  { types: ["focus", "task", "errand"], color: "var(--c-focus)", label: (n) => `${n} ${plural(n, "задача", "задачі", "задач")}` },
-  { types: ["personal", "sport"], color: "var(--c-personal)", label: (n) => `${n} особисте` },
-];
-
 function renderComposer() {
-  els.greeting.textContent = greeting();
-  els.title.textContent = composerTitle();
   const editing = Boolean(day().plan?.blocks?.length);
-  els.lead.textContent = editing
-    ? "Скажіть, що змінилось, — решту плану я збережу."
-    : "Зустрічі, справи, бажання — у будь-якому порядку. Решту я впорядкую.";
-  els.dictation.placeholder = editing
-    ? "Наприклад: о 16:00 зустріч з Андрієм, а зал перенеси на ранок…"
-    : "Наприклад: о десятій дзвінок з командою, до обіду дописати презентацію, забрати посилку, ввечері в зал…";
+  els.dictation.placeholder = editing ? "Що додати чи змінити?" : `Розкажіть, що у вас ${dayWord()}…`;
+  els.dockHint.textContent = !SpeechRecognition
+    ? "голосовий ввід — у Chrome чи Safari · Enter — надіслати"
+    : editing
+      ? "напр.: «о 16:00 зустріч з Андрієм» — решта плану збережеться"
+      : "мікрофон або текст · зустрічі, справи, бажання — у будь-якому порядку";
   renderHistory();
-
-  const blocks = day().plan?.blocks || [];
-  const chips = CHIP_GROUPS.map((g) => ({ ...g, n: blocks.filter((b) => g.types.includes(b.type)).length }))
-    .filter((g) => g.n > 0)
-    .map((g) => {
-      const chip = el("span", "chip", g.label(g.n));
-      chip.style.setProperty("--c", g.color);
-      chip.prepend(el("i"));
-      return chip;
-    });
-  els.chips.replaceChildren(...chips);
-  els.chips.hidden = chips.length === 0;
-
   autoGrow();
   syncPlanButton();
 }
@@ -300,54 +281,55 @@ function renderHistory() {
   const history = day().history || [];
   els.history.hidden = history.length === 0;
   if (!history.length) return;
-  els.history.querySelector("summary").textContent = `Що ви вже казали · ${history.length}`;
+  els.history.querySelector("summary").textContent = `ви казали · ${history.length}`;
   els.history.querySelector("ol").replaceChildren(...history.map((h) => el("li", null, h.text)));
 }
 
 function autoGrow() {
   els.dictation.style.height = "auto";
-  els.dictation.style.height = `${els.dictation.scrollHeight}px`;
+  els.dictation.style.height = `${Math.min(els.dictation.scrollHeight, 168)}px`;
 }
 
 function syncPlanButton() {
   const loading = state.loadingKey === currentKey();
-  els.planBtn.disabled = !isConfigured || Boolean(state.loadingKey) || !els.dictation.value.trim();
-  els.planBtn.classList.toggle("loading", loading);
   const editing = Boolean(day().plan?.blocks?.length);
-  els.planBtn.querySelector(".label").textContent = loading
-    ? editing
-      ? "Оновлюю план…"
-      : "Складаю план…"
-    : editing
-      ? "Оновити план"
-      : "Скласти план";
+  els.planBtn.disabled = !isConfigured || Boolean(state.loadingKey) || !els.dictation.value.trim();
+  els.planBtn.setAttribute("aria-label", editing ? "Оновити план" : "Скласти план");
+  els.dock.classList.toggle("loading", loading);
 }
 
 // ---------- Plan ----------
+
+const GROUPS = [
+  { key: "focus", label: "фокус", types: ["focus"] },
+  { key: "meeting", label: "зустрічі", types: ["meeting"] },
+  { key: "tasks", label: "справи", types: ["task", "errand"] },
+  { key: "break", label: "перерви", types: ["break"] },
+  { key: "personal", label: "особисте", types: ["personal", "sport"] },
+];
+
+const hm = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")}`;
 
 function renderPlan() {
   const loading = state.loadingKey === currentKey();
   const plan = loading ? null : day().plan;
   const blocks = plan?.blocks || [];
+  const editing = Boolean(day().plan?.blocks?.length);
 
-  // Header line: "8 подій · 9:00 – 21:00 · 3,5 год вільного часу"
+  // "8 подій · 9:00–21:00"
   if (loading) {
-    els.planMeta.textContent = "Gemini розкладає ваш день…";
+    els.dayStatus.textContent = editing ? "оновлюю план…" : "складаю план…";
   } else if (blocks.length) {
     const end = blocks.reduce((max, b) => (b.end > max ? b.end : max), blocks[0].end);
-    const parts = [
-      `${blocks.length} ${plural(blocks.length, "подія", "події", "подій")}`,
-      `${shortTime(blocks[0].start)} – ${shortTime(end)}`,
-    ];
-    const free = freeGaps(blocks).reduce((sum, g) => sum + (g.minutes >= 30 ? g.minutes : 0), 0);
-    if (free) parts.push(`${duration(free)} вільного часу`);
-    els.planMeta.textContent = parts.join(" · ");
+    els.dayStatus.textContent = `${blocks.length} ${plural(blocks.length, "подія", "події", "подій")} · ${shortTime(blocks[0].start)}–${shortTime(end)}`;
   } else {
-    els.planMeta.textContent = "Поки порожньо";
+    els.dayStatus.textContent = "план порожній";
   }
 
+  renderComposition(blocks);
+
   els.why.hidden = !plan?.rationale;
-  els.whyText.textContent = plan?.rationale || "";
+  els.why.textContent = plan?.rationale || "";
 
   renderTimeline(blocks, loading);
 
@@ -355,6 +337,7 @@ function renderPlan() {
   list.replaceChildren(...(plan?.unscheduled || []).map((t) => el("li", null, t)));
   els.unscheduled.hidden = !plan?.unscheduled?.length;
 
+  els.planActions.hidden = !blocks.length;
   const ops = plan ? calendarOps(plan) : [];
   const synced = blocks.some((b) => b.eventId) || plan?.removedEventIds?.length;
   els.gcalBtn.disabled = !isConfigured || ops.length === 0;
@@ -362,9 +345,37 @@ function renderPlan() {
     ? "Додати в Google Calendar"
     : ops.length
       ? `Оновити календар · ${ops.length}`
-      : "В календарі ✓";
+      : "У календарі ✓";
   els.icsBtn.disabled = !blocks.some((b) => b.included);
-  els.clearBtn.hidden = !plan;
+}
+
+/** Proportions of the day: how much is focus, meetings, errands, breaks, personal and free time. */
+function renderComposition(blocks) {
+  els.composition.hidden = !blocks.length;
+  if (!blocks.length) return;
+  const minutes = (b) => toMin(b.end) - toMin(b.start);
+  const groups = GROUPS.map((g) => ({
+    ...g,
+    min: blocks.filter((b) => g.types.includes(b.type)).reduce((sum, b) => sum + minutes(b), 0),
+  }));
+  const free = freeGaps(blocks).reduce((sum, g) => sum + g.minutes, 0);
+  const rows = [...groups, { key: "free", label: "вільно", min: free }].filter((g) => g.min > 0);
+
+  els.compBar.replaceChildren(
+    ...rows.map((g) => {
+      const seg = el("span", `sw-${g.key}`);
+      seg.style.flexGrow = g.min;
+      seg.title = `${g.label} · ${hm(g.min)}`;
+      return seg;
+    }),
+  );
+  els.compLegend.replaceChildren(
+    ...rows.map((g) => {
+      const li = el("li");
+      li.append(el("i", `sw-${g.key}`), g.label, el("b", null, hm(g.min)));
+      return li;
+    }),
+  );
 }
 
 function freeGaps(blocks) {
@@ -402,66 +413,104 @@ function layoutColumns(blocks) {
 
 function renderTimeline(blocks, loading) {
   const tl = els.timeline;
-  let startH = 9;
-  let endH = 18;
+  const HOUR = hourPx();
+  let startH = 8;
+  let endH = 20;
   if (blocks.length) {
     startH = Math.floor(toMin(blocks[0].start) / 60);
     endH = Math.ceil(Math.max(...blocks.map((b) => toMin(b.end))) / 60);
   }
   endH = Math.max(endH, startH + 4);
 
-  const y = (min) => ((min - startH * 60) / 60) * HOUR_PX;
+  const y = (min) => ((min - startH * 60) / 60) * HOUR;
   const nodes = [];
 
   for (let h = startH; h <= endH; h++) {
     const line = el("div", "hour");
     line.style.top = `${y(h * 60)}px`;
-    line.append(el("span", null, `${String(h).padStart(2, "0")}:00`));
+    const label = el("span", null, String(h).padStart(2, "0"));
+    label.append(el("small", null, ":00"));
+    line.append(label);
     nodes.push(line);
+    if (h < endH) {
+      const half = el("div", "hour half");
+      half.style.top = `${y(h * 60 + 30)}px`;
+      nodes.push(half);
+    }
+  }
+
+  // Time that has already passed today is hatched, like a page that's been written on.
+  const now = nowMin();
+  const diff = dayDiff(state.date);
+  const pastUntil = diff < 0 ? endH * 60 : diff === 0 ? Math.min(Math.max(now, startH * 60), endH * 60) : startH * 60;
+  if (pastUntil > startH * 60 && (blocks.length || loading)) {
+    const past = el("div", "past-zone");
+    past.style.height = `${y(pastUntil)}px`;
+    nodes.push(past);
   }
 
   if (loading) {
-    [[9 * 60 + 10, 50], [10 * 60 + 15, 35], [11 * 60, 80], [13 * 60, 55], [14 * 60 + 15, 25], [16 * 60, 70]].forEach(
+    [[startH * 60 + 15, 50], [startH * 60 + 75, 35], [startH * 60 + 130, 80], [startH * 60 + 240, 55], [startH * 60 + 320, 70]].forEach(
       ([start, len], i) => {
         const sk = el("div", "skeleton");
         sk.style.top = `${y(start)}px`;
-        sk.style.height = `${(len / 60) * HOUR_PX}px`;
-        sk.style.animationDelay = `${i * 0.12}s`;
+        sk.style.height = `${(len / 60) * HOUR}px`;
+        sk.style.animationDelay = `${i * -0.2}s`;
         nodes.push(sk);
       },
     );
   } else if (!blocks.length) {
-    nodes.push(el("div", "empty", "Надиктуйте або напишіть, що у вас заплановано, — план з'явиться тут"));
+    const empty = el("div", "empty");
+    empty.append(
+      el("h2", null, "Чистий аркуш."),
+      el("p", null, "Натисніть на мікрофон унизу й розкажіть про день: зустрічі, справи, що хотілося б встигнути. План з'явиться тут."),
+    );
+    nodes.push(empty);
   } else {
     for (const gap of freeGaps(blocks)) {
       if (gap.minutes < 60) continue;
-      const free = el("div", "free", `Вільно · ${duration(gap.minutes)}`);
+      const free = el("button", "free");
+      free.type = "button";
       free.style.top = `${y(gap.from) + 3}px`;
       free.style.height = `${y(gap.to) - y(gap.from) - 6}px`;
+      free.append(el("span", null, `вільне вікно · ${duration(gap.minutes)}`), el("span", "add", "+ додати"));
+      free.addEventListener("click", () => suggestInGap(gap));
       nodes.push(free);
     }
     layoutColumns(blocks);
-    blocks.forEach((block, i) => nodes.push(eventEl(block, i, y)));
+    blocks.forEach((block, i) => nodes.push(eventEl(block, i, y, HOUR)));
   }
 
-  const now = nowMin();
-  if (dayDiff(state.date) === 0 && now >= startH * 60 && now <= endH * 60) {
+  if (diff === 0 && now >= startH * 60 && now <= endH * 60) {
     const line = el("div", "now");
     line.style.top = `${y(now)}px`;
     line.append(el("span", null, hhmm(new Date())));
     nodes.push(line);
   }
 
-  tl.style.height = `${(endH - startH) * HOUR_PX + 12}px`;
+  tl.style.height = `${(endH - startH) * HOUR + 12}px`;
   tl.replaceChildren(...nodes);
+}
+
+/** Clicking a free window starts a request with its time, ready to dictate or type the rest. */
+function suggestInGap(gap) {
+  const start = Math.max(gap.from, dayDiff(state.date) === 0 ? toMin(earliestStart()) : 0);
+  const rounded = Math.ceil(start / 15) * 15;
+  const time = `${String(Math.floor(rounded / 60)).padStart(2, "0")}:${String(rounded % 60).padStart(2, "0")}`;
+  els.dictation.value = `О ${time} `;
+  day().dictation = els.dictation.value;
+  syncPlanButton();
+  autoGrow();
+  els.dictation.focus();
+  els.dictation.setSelectionRange(els.dictation.value.length, els.dictation.value.length);
 }
 
 const renderedIds = new Set();
 
-function eventEl(block, index, y) {
+function eventEl(block, index, y, HOUR) {
   const start = toMin(block.start);
   const end = toMin(block.end);
-  const height = Math.max(((end - start) / 60) * HOUR_PX - 3, 20);
+  const height = Math.max(((end - start) / 60) * HOUR - 3, 22);
   const compact = height < 40;
   const diff = dayDiff(state.date);
   const past = diff < 0 || (diff === 0 && end <= nowMin());
@@ -490,20 +539,22 @@ function eventEl(block, index, y) {
 
   const main = el("div", "event-main");
   main.append(el("div", "event-title", block.title));
-  const time = `${shortTime(block.start)} – ${shortTime(block.end)}`;
-  main.append(el("div", "event-sub", compact || !block.notes ? time : `${time} · ${block.notes}`));
+  const sub = el("div", "event-sub");
+  sub.append(el("span", "t", `${block.start}–${block.end}`));
+  if (!compact && block.notes) sub.append(` · ${block.notes}`);
+  main.append(sub);
   btn.append(main);
 
   if (block.eventId && block.included) {
     const badge = el("span", `event-badge ${block.dirty ? "changed" : "added"}`);
     badge.innerHTML = CHECK_SVG;
-    badge.append(el("span", "badge-text", block.dirty ? "Змінено" : "В календарі"));
+    badge.append(el("span", "badge-text", block.dirty ? "змінено" : "у календарі"));
     if (block.dirty) badge.title = "Змінено після додавання — натисніть «Оновити календар»";
     btn.append(badge);
   } else if (block.fixed) {
     const badge = el("span", "event-badge");
     badge.innerHTML = LOCK_SVG;
-    badge.append(el("span", "badge-text", "Фіксовано"));
+    badge.append(el("span", "badge-text", "фікс."));
     badge.title = "Фіксований час";
     btn.append(badge);
   }
@@ -530,7 +581,7 @@ let recognition = null;
 let recording = false;
 let committedText = ""; // text before the current recognition session
 let startedAt = 0;
-let clock = null;
+let recClock = null;
 let lastSpeechAt = 0;
 
 const joinText = (...parts) =>
@@ -543,7 +594,7 @@ const joinText = (...parts) =>
 const wave = { bars: [], levels: [], timer: null, stream: null, audioCtx: null, analyser: null };
 
 function setupWaveBars() {
-  const count = Math.max(12, Math.floor(els.wave.clientWidth / 6));
+  const count = Math.max(16, Math.floor(els.wave.clientWidth / 4));
   wave.bars = Array.from({ length: count }, () => el("span", "quiet"));
   els.wave.replaceChildren(...wave.bars);
   wave.levels = [];
@@ -553,7 +604,7 @@ function setupWaveBars() {
 function drawWave() {
   wave.bars.forEach((bar, i) => {
     const level = wave.levels[i] ?? 0;
-    bar.style.height = `${3 + level * 34}px`;
+    bar.style.height = `${2 + level * 20}px`;
     bar.classList.toggle("quiet", level < 0.06);
   });
 }
@@ -597,19 +648,9 @@ function stopWave() {
 }
 
 function renderRecorder() {
-  if (!SpeechRecognition) {
-    els.recTime.textContent = "";
-    els.recHint.textContent = "Голос — у Chrome чи Safari";
-    return;
-  }
-  if (recording) {
-    const s = Math.floor((Date.now() - startedAt) / 1000);
-    els.recTime.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-    els.recHint.textContent = "Слухаю…";
-  } else {
-    els.recTime.textContent = "";
-    els.recHint.textContent = "Натисніть і говоріть";
-  }
+  if (!recording) return;
+  const s = Math.floor((Date.now() - startedAt) / 1000);
+  els.recTime.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 function startRecording() {
@@ -664,12 +705,13 @@ function startRecording() {
   startedAt = Date.now();
   els.liveFinal.textContent = committedText;
   els.liveInterim.textContent = "";
-  els.field.classList.add("recording");
+  els.dock.classList.add("recording");
+  els.recRow.hidden = false;
   els.live.hidden = false;
   els.mic.classList.add("recording");
   els.mic.setAttribute("aria-pressed", "true");
   els.mic.setAttribute("aria-label", "Зупинити запис");
-  clock = setInterval(renderRecorder, 250);
+  recClock = setInterval(renderRecorder, 250);
   renderRecorder();
   startWave();
 }
@@ -677,9 +719,10 @@ function startRecording() {
 function stopRecording() {
   recording = false;
   recognition?.stop();
-  clearInterval(clock);
+  clearInterval(recClock);
   stopWave();
-  els.field.classList.remove("recording");
+  els.dock.classList.remove("recording");
+  els.recRow.hidden = true;
   autoGrow();
   els.live.hidden = true;
   els.mic.classList.remove("recording");
@@ -687,8 +730,6 @@ function stopRecording() {
   els.mic.setAttribute("aria-label", "Почати запис");
   day().dictation = els.dictation.value;
   save();
-  renderRecorder();
-  setupWaveBars();
   syncPlanButton();
 }
 
@@ -909,12 +950,22 @@ els.dictation.addEventListener("input", () => {
   syncPlanButton();
   save();
 });
-els.planBtn.addEventListener("click", makePlan);
+els.dock.addEventListener("submit", (e) => {
+  e.preventDefault();
+  makePlan();
+});
+// Enter sends, Shift+Enter starts a new line — like a message.
+els.dictation.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    if (!els.planBtn.disabled) makePlan();
+  }
+});
 els.gcalBtn.addEventListener("click", exportToGoogle);
 els.icsBtn.addEventListener("click", downloadIcs);
 els.clearBtn.addEventListener("click", clearDay);
 
-els.datePill.addEventListener("click", (e) => {
+els.dateBtn.addEventListener("click", (e) => {
   e.stopPropagation();
   els.calendar.hidden ? openCalendar() : closeCalendar();
 });
@@ -922,10 +973,7 @@ els.prevDay.addEventListener("click", () => selectDate(addDays(state.date, -1)))
 els.nextDay.addEventListener("click", () => selectDate(addDays(state.date, 1)));
 els.calPrev.addEventListener("click", () => shiftCalendarMonth(-1));
 els.calNext.addEventListener("click", () => shiftCalendarMonth(1));
-els.calToday.addEventListener("click", () => {
-  selectDate(new Date());
-  closeCalendar();
-});
+els.todayBtn.addEventListener("click", () => selectDate(new Date()));
 els.calendar.addEventListener("click", (e) => e.stopPropagation());
 document.addEventListener("click", () => !els.calendar.hidden && closeCalendar());
 
@@ -942,12 +990,9 @@ setInterval(() => {
   if (dayDiff(state.date) === 0 && !state.loadingKey) renderPlan();
 }, 60_000);
 
-els.kbd.textContent = IS_MAC ? "⌘ ↵" : "Ctrl ↵";
 els.mic.disabled = !SpeechRecognition;
 els.banner.hidden = isConfigured;
 
 restore();
 els.dictation.value = day().dictation;
 render();
-renderRecorder();
-setupWaveBars();
